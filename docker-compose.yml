@@ -1,0 +1,7 @@
+services:
+  server:
+    build: ./server
+    volumes:
+      - ./public:/app/public
+    ports:
+      - 8080:8080
