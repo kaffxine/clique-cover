@@ -1,6 +1,8 @@
 services:
   server:
-    build: ./server
+    build:
+      context: ./server
+      dockerfile: Dockerfile
     volumes:
       - ./public:/app/public
     ports:

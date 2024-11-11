@@ -10,12 +10,13 @@ WORKDIR /build
 # cache cargo dependencies to reduce build time
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release --target x86_64-unknown-linux-musl || true
+RUN cargo build --target x86_64-unknown-linux-musl --release || true
 RUN rm -rf src
 
 # compile the project
 COPY ./ ./
-RUN cargo build --release --target x86_64-unknown-linux-musl
+RUN echo "// modifying a file to invalidate cargo cache" >> src/main.rs
+RUN cargo build --target x86_64-unknown-linux-musl --release
 
 # ---------------------------------------------------
 # stage two: run the binary on a minimal alpine image
