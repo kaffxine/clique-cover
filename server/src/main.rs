@@ -1,6 +1,6 @@
 use axum::{Json, Router};
 use axum::extract::{ConnectInfo, State};
-use axum::extract::ws::{WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::{Html, IntoResponse};
 use axum::routing::{get, get_service, post};
 use std::io;
@@ -13,7 +13,8 @@ use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 
 mod types;
-use types::{AppState, Algo, RunParams, GraphGenParams, MsgToIntern, MsgToExtern};
+use types::{AppState, Algo, RunParams, GraphGenParams};
+use types::{Msg};
 
 const ASSETS_DIR: &str = "/app/public";
 
@@ -24,7 +25,7 @@ async fn main() -> io::Result<()> {
     let internal_router = get_internal_router(app_state.clone());
     let public_router = get_public_router(app_state.clone());
 
-    let internal_listener = TcpListener::bind("0.0.0.0:3001").await?;
+    let internal_listener = TcpListener::bind("127.0.0.1:3001").await?;
     let public_listener = TcpListener::bind("0.0.0.0:3000").await?;
 
     tokio::join!(
@@ -64,11 +65,46 @@ async fn public_ws_handler(
 }
 
 async fn handle_internal_ws(mut socket: WebSocket state: AppState) {
-    
+
 }
 
 async fn handle_public_ws(mut socket: WebSocket state: AppState) {
+    let rx = if let Ok(rx) = state
+        .rx_to_public
+        .lock()
+        .await
+        .as_mut()
+        .and_then(|opt| opt.take())
+    { rx } 
+    else {
+        let msg = Msg::busy().to_json().unwrap();
+        if socket
+            .send(Message::Text(msg))
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
 
+    while let Some(Ok(message)) = socket.recv().await {
+        if let Message::Text(content) = message {
+            let msg = if let Ok(msg) = Msg::unpack(content) {
+                msg
+            } else {
+                println!("failed to parse json from the website");
+                continue;
+            };
+            match msg.cmd.as_str() {
+                "START" => {
+                    
+                },
+                "ABORT" => {
+
+                },
+            }
+        }
+    }
 }
 
 

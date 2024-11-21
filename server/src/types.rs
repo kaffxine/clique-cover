@@ -1,3 +1,5 @@
+use axum::extract::ws::{Message, WebSocket};
+use regex::Regex;
 use serde::{Serialize, Deserialize};
 use std::sync::{Arc};
 use std::sync::atomic::{self, AtomicBool};
@@ -10,8 +12,8 @@ pub struct AppState {
     pub run_params: Arc<RwLock<RunParams>>,
     pub algo_list: Arc<RwLock<Vec<Algo>>>,
     pub tx_to_intern: broadcast::Sender<MsgToIntern>,
-    pub tx_to_extern: mpsc::Sender<MsgToExtern>,
-    pub rx_to_extern: Arc<Mutex<Option<mpsc::Receiver<MsgToExtern>>>>,
+    pub tx_to_public: mpsc::Sender<MsgToPublic>,
+    pub rx_to_public: Arc<Mutex<Option<mpsc::Receiver<MsgToPublic>>>>,
 }
 
 #[derive(Serialize)]
@@ -19,12 +21,6 @@ pub struct Algo {
     pub id: u32,
     pub name: String,
 }
-
-#[derive(Serialize, Deserialize)]
-pub struct MsgToIntern {};
-
-#[derive(Serialize, Deserialize)]
-pub struct MsgToExtern {};
 
 #[derive(Deserialize)]
 pub struct RunParams {
@@ -40,10 +36,16 @@ pub struct GraphGenParams {
     pub edge_density: f64,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct Msg {
+    command: String,
+    payload: String,
+}
+
 impl AppState {
     pub fn new() -> Self {
-        let (tx_int, _) = broadcast::channel::<MsgToIntern>(SIZE);
-        let (tx_ext, rx_ext) = mpsc::channel::<MsgToExtern>(SIZE);
+        let (tx_int, _) = broadcast::channel::<Msg>(SIZE);
+        let (tx_ext, rx_ext) = mpsc::channel::<Msg>(SIZE);
         AppState {
             run_params: Arc::new(RwLock::new(RunParams {
                 graph_gen_params: GraphGenParams::default(),
@@ -51,8 +53,8 @@ impl AppState {
             })),
             algo_list: Arc::new(RwLock::new(Vec::new())),
             tx_to_intern = tx_int,
-            tx_to_extern = tx_ext,
-            rx_to_extern = Arc::new(Mutex::new(Some(rx_ext))),
+            tx_to_public = tx_ext,
+            rx_to_public = Arc::new(Mutex::new(Some(rx_ext))),
         }
     }
 }
@@ -82,3 +84,26 @@ impl Default for GraphGenParams {
     }
 }
 
+impl Msg {
+    fn pack(&self) -> String {
+        format!("\\{{{}}}{}", self.command, self.payload);
+    }
+
+    fn unpack(input_str: &str) -> Result<Self, String> {
+        let re = Regex::new(r"\\\{([^}]+)\}(.*)").map_err(|e| e.to_string())?;
+        if let Some(cpt) = re.captures(input_str) {
+            let command = cpt.get(1).map_or("", |m| m.as_str()).to_string();
+            let payload = cpt.get(2).map_or("", |m| m.as_str()).to_string();
+            Ok(Self { command, payload })
+        } else {
+            Err("Invalid format".to_string())
+        }
+    }
+
+    fn busy() -> Self {
+        Self {
+            command: "BUSY".to_string(),
+            payload: "".to_string(),
+        }
+    }
+}
