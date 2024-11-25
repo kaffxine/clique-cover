@@ -9,56 +9,23 @@ use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 
 const SIZE: u32 = 256;
 
-#[derive(Clone)]
-pub struct AppState {
-    pub run_params: Arc<RwLock<RunParams>>,
-    pub algo_list: Arc<RwLock<Vec<Algo>>>,
-    pub tx_to_intern: broadcast::Sender<MsgToIntern>,
-    pub tx_to_public: mpsc::Sender<MsgToPublic>,
-    pub rx_to_public: Arc<Mutex<Option<mpsc::Receiver<MsgToPublic>>>>,
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Graph {
+    pub serialized_matrix: Vec<u8>,
 }
 
-#[derive(Serialize)]
-pub struct Algo {
-    pub id: u32,
-    pub name: String,
-}
-
-#[derive(Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RunParams {
     pub graph_gen_params: GraphGenParams,
     pub algo_ids_selected: Vec<u32>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GraphGenParams {
     pub nodes_min: u16,
     pub nodes_max: u16,
     pub nodes_step: u16,
     pub edge_density: f64,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Msg<T> {
-    command: String,
-    payload: T,
-}
-
-impl AppState {
-    pub fn new() -> Self {
-        let (tx_int, _) = broadcast::channel::<Msg>(SIZE);
-        let (tx_ext, rx_ext) = mpsc::channel::<Msg>(SIZE);
-        AppState {
-            run_params: Arc::new(RwLock::new(RunParams {
-                graph_gen_params: GraphGenParams::default(),
-                algo_ids_selected: Vec::new(),
-            })),
-            algo_list: Arc::new(RwLock::new(Vec::new())),
-            tx_to_intern = tx_int,
-            tx_to_public = tx_ext,
-            rx_to_public = Arc::new(Mutex::new(Some(rx_ext))),
-        }
-    }
 }
 
 impl RunParams {
@@ -85,14 +52,3 @@ impl Default for GraphGenParams {
         }
     }
 }
-
-impl<T> Msg<T> 
-where
-    T: Serialize + for<'de> Deserialize<'de>,
-{
-    fn from_message(message: Message) -> Result<Self, dyn Error> {
-        if let Message::Text(content) = message {
-            Ok(bincode::deserialize(content.as_bytes())?)
-        } else {
-            Err("received unsupported message format"
-

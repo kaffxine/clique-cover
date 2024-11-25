@@ -12,11 +12,33 @@ use tokio::fs;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 
-mod types;
-use types::{AppState, Algo, RunParams, GraphGenParams};
-use types::{Msg};
-
 const ASSETS_DIR: &str = "/app/public";
+
+#[derive(Clone)]
+pub struct AppState {
+    pub run_params: Arc<RwLock<RunParams>>,
+    pub algo_list: Arc<RwLock<Vec<Algo>>>,
+    pub tx_to_intern: broadcast::Sender<MsgToIntern>,
+    pub tx_to_public: mpsc::Sender<MsgToPublic>,
+    pub rx_to_public: Arc<Mutex<Option<mpsc::Receiver<MsgToPublic>>>>,
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        let (tx_int, _) = broadcast::channel::<Msg>(SIZE);
+        let (tx_ext, rx_ext) = mpsc::channel::<Msg>(SIZE);
+        AppState {
+            run_params: Arc::new(RwLock::new(RunParams {
+                graph_gen_params: GraphGenParams::default(),
+                algo_ids_selected: Vec::new(),
+            })),
+            algo_list: Arc::new(RwLock::new(Vec::new())),
+            tx_to_intern = tx_int,
+            tx_to_public = tx_ext,
+            rx_to_public = Arc::new(Mutex::new(Some(rx_ext))),
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -116,3 +138,4 @@ async fn update_run_settings(
     *lock = Some(received_settings);
     "settings updated successfully"
 }
+
