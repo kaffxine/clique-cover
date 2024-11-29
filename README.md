@@ -1,6 +1,6 @@
 # Tymczasowe README: zarys projektu
 ## Postęp w mojej pracy
-Kod, który aktualnie jest w tym repo, jest niepoprawny. Zawsze chciałem się nauczyć programować asynchronicznie w Ruście, a ten projekt jest ku temu dobrą okazją, jednak moje doświadczenie w pisaniu tego typu programów jest znikome, więc zajmuje mi to sporo czasu. Zarys projektu jest już gotowy i dokładnie wiem już jak to wszystko będzie działać, pozostało jedynie zadbanie o techniczne szczegóły. Myślę, że do końca tego tygodnia (tj. 2024-11-24), moja część projektu będzie już gotowa.
+Z uwagi na autyzm i perfekcjonizm programisty back-end'u, kod jest pisany od nowa po raz czwarty. Prosimy o cierpliwość :3
 ## Zarys projektu
 Projekt się dzieli na trzy główne części:
 - front-end: /public directory
