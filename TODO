@@ -1,0 +1,9 @@
+broadcast START from main to graph_gen, algos
+
+broadcast from graph_gen to algos, main
+
+mpsc from algos to main
+
+broadcast from main to website
+
+mpsc from website to main

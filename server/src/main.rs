@@ -1,141 +1,126 @@
-use axum::{Json, Router};
-use axum::extract::{ConnectInfo, State};
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::response::{Html, IntoResponse};
-use axum::routing::{get, get_service, post};
-use std::io;
-use std::net::SocketAddr;
-use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{self, AtomicBool};
-use tokio::fs;
-use tokio::net::TcpListener;
-use tower_http::services::ServeDir;
-
-const ASSETS_DIR: &str = "/app/public";
+use dashmap::DashMap;
+use futures_util::{sink::SinkExt, stream::StreamExt};
+use rand::Rng;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
+use tokio::net::{TcpStream, TcpListener};
+use tokio::sync::Mutex;
+use tokio::sync::RwLock;
+use tokio::sync::broadcast;
+use tokio::sync::mpsc;
+use tokio_tungstenite::accept_async;
+use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::protocol::Message;
+use shared::{MyMsg, AlgoResult, Graph};
 
 #[derive(Clone)]
-pub struct AppState {
-    pub run_params: Arc<RwLock<RunParams>>,
-    pub algo_list: Arc<RwLock<Vec<Algo>>>,
-    pub tx_to_intern: broadcast::Sender<MsgToIntern>,
-    pub tx_to_public: mpsc::Sender<MsgToPublic>,
-    pub rx_to_public: Arc<Mutex<Option<mpsc::Receiver<MsgToPublic>>>>,
+struct SharedState {
+    session_id: Arc<AtomicU8>,
+    graphs: Arc<DashMap<u64, Graph>>,
+    algo_names: Arc<DashMap<u64, String>>,
+    algo_results: Arc<DashMap<(u64, u64), AlgoResult>>,
 }
 
-impl AppState {
-    pub fn new() -> Self {
-        let (tx_int, _) = broadcast::channel::<Msg>(SIZE);
-        let (tx_ext, rx_ext) = mpsc::channel::<Msg>(SIZE);
-        AppState {
-            run_params: Arc::new(RwLock::new(RunParams {
-                graph_gen_params: GraphGenParams::default(),
-                algo_ids_selected: Vec::new(),
-            })),
-            algo_list: Arc::new(RwLock::new(Vec::new())),
-            tx_to_intern = tx_int,
-            tx_to_public = tx_ext,
-            rx_to_public = Arc::new(Mutex::new(Some(rx_ext))),
-        }
-    }
-}
+const CHANNEL_SIZE: usize = 1024;
+const WEBSITE_ADDR: &str = "0.0.0.0:3000";
+const ALGONET_ADDR: &str = "127.0.0.1:3001";
+const GRAFNET_ADDR: &str = "127.0.0.1:3002";
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
-    let app_state = AppState::new();
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let (tx_to_algonet, rx_at_algonet) = broadcast::channel<MyMsg>(CHANNEL_SIZE);
+    let (tx_to_website, rx_at_website) = broadcast::channel<MyMsg>(CHANNEL_SIZE);
+    let (tx_to_grafnet, rx_at_grafnet) = mpsc::channel<MyMsg>(CHANNEL_SIZE);
+    let shared_state = SharedState { Arc::new(DashMap::new()) };
 
-    let internal_router = get_internal_router(app_state.clone());
-    let public_router = get_public_router(app_state.clone());
-
-    let internal_listener = TcpListener::bind("127.0.0.1:3001").await?;
-    let public_listener = TcpListener::bind("0.0.0.0:3000").await?;
-
-    tokio::join!(
-        axum::serve(internal_listener, internal_router.into_make_service()).await?,
-        axum::serve(public_listener, public_router.into_make_service()).await?,
-    );
-
-    Ok(())
+    let algonet_tcp_listener = TcpListener::bind(ALGONET_ADDR).await?; 
+    tokio::spawn(handle_algonet(
+        algonet_tcp_listener,
+        tx_to_website,
+        rx_at_algonet,
+        shared_state.clone(),
+    ));
 }
 
-fn get_internal_router(app_state: AppState) -> Router {
-    Router::new()
-        .route("/ws", any(internal_ws_handler))
-        .with_state(app_state)
+async fn handle_grafnet(
+    listener: TcpListener,
+    tx_to_algonet: broadcast::Sender<MyMsg>,
+    rx_at_grafnet: mpsc::Receiver<MyMsg>,
+    shared_state: SharedState,
+) {
+    while let Ok((tcp_stream, _)) = listener.accept().await {
+        let ws_stream = accept_async(tcp_stream).await;
+        if let Ok(ws_stream) = ws_stream {
+        }
+    }
 }
 
-fn get_public_router(app_state: AppState) -> Router {
-    Router::new()
-        .fallback_service(ServeDir::new(ASSETS_DIR))
-        i
-        .route("/ws", any(public_ws_handler))
-        .with_state(app_state)
+async fn handle_algonet(
+    listener: TcpListener,
+    tx_to_website: broadcast::Sender<MyMsg>,
+    rx_at_algonet: broadcast::Receiver<MyMsg>,
+    shared_state: SharedState,
+) {
+    while let Ok((tcp_stream, _)) = listener.accept().await {
+        let ws_stream = accept_async(tcp_stream).await;
+        if let Ok(ws_stream) = ws_stream {
+            tokio::spawn(handle_algonet_ws(
+                ws_stream,
+                tx_to_website.clone(),
+                rx_at_algonet.resubscribe(),
+                shared_state.clone(),
+            );
+        }
+    }
 }
 
-async fn internal_ws_handler(
-    ws: WebSocketUpgrade,
-    state: AppState,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_internal_ws(socket, state))
-}
+async fn handle_algonet_ws(
+    ws_stream: WebSocketStream<TcpStream>,
+    tx_to_website: broadcast::Sender<MyMsg>,
+    rx_at_algonet: broadcast::Receiver<MyMsg>,
+    shared_state: SharedState,
+) {
+    let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
-async fn public_ws_handler(
-    ws: WebSocketUpgrade,
-    state: AppState,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_internal_ws(socket, state))
-}
+    let client_id = while let Some(Ok(Message::Binary(msg))) = ws_receiver.next().await {
+        if let Ok(MyMsg::Greet(client_name)) = bincode::deserialize(&msg) {
+            // TODO generate a hash using twox-hash
+        }
+    }
+    
+    // TODO maybe some AtomicBool "running"?
 
-async fn handle_internal_ws(mut socket: WebSocket state: AppState) {
-
-}
-
-async fn handle_public_ws(mut socket: WebSocket state: AppState) {
-    let rx = if let Ok(rx) = state
-        .rx_to_public
-        .lock()
-        .await
-        .as_mut()
-        .and_then(|opt| opt.take())
-    { rx } 
-    else {
-        let msg = Msg::busy().to_json().unwrap();
-        if socket
-            .send(Message::Text(msg))
-            .await
-            .is_err()
-        {
-            break;
+    tokio::spawn(async move {
+        while let Ok(msg) = rx_at_algonet.recv().await {
+            match msg {
+                MyMsg::Graph(_) => {
+                    // TODO Start enum variant
+                    if let Ok(msg) = bincode::serialize(&msg) {
+                        let _ = ws_sender.send(Message::Binary(msg)).await;
+                    }
+                },
+                _ => {}
+            }
         }
     }
 
-    while let Some(Ok(message)) = socket.recv().await {
-        if let Message::Text(content) = message {
-            let msg = if let Ok(msg) = Msg::unpack(content) {
-                msg
-            } else {
-                println!("failed to parse json from the website");
-                continue;
-            };
-            match msg.cmd.as_str() {
-                "START" => {
-                    
-                },
-                "ABORT" => {
-
-                },
+    tokio::spawn(async move {
+        while let Some(Ok(Message::Binary(msg))) = ws_receiver.next().await {
+            if let Ok(msg) = bincode::deserialize(&msg) {
+                match msg {
+                    // TODO AlgoResult api changed
+                    MyMsg::AlgoResult(graph_id, algo_result) => {
+                        shared_state
+                            .algo_results
+                            .insert((client_id, graph_id, algo_result));
+                        let response = MyMsg::AlgoFinished(client_id, graph_id);
+                        if let Ok(response) = bincode::serialize(&response) {
+                            let _ = tx_to_website.send(response);
+                        }
+                    },
+                    _ => {}
+                }
             }
         }
     }
 }
-
-
-async fn update_run_settings(
-    State(app_state): State<AppState>,
-    Json(received_settings): Json<RunParams>,
-) -> &'static str {
-    let mut lock = app_state.run_params.lock().unwrap();
-    *lock = Some(received_settings);
-    "settings updated successfully"
-}
-
