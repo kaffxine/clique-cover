@@ -1,8 +1,8 @@
 use dashmap::DashMap;
 use futures_util::{sink::SinkExt, stream::StreamExt};
-use rand::Rng;
+use std::hash::Hasher;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use tokio::net::{TcpStream, TcpListener};
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::protocol::Message;
+use twox_hash::XxHash64;
 use shared::{MyMsg, AlgoResult, Graph};
 
 #[derive(Clone)]
@@ -21,10 +22,23 @@ struct SharedState {
     algo_results: Arc<DashMap<(u64, u64), AlgoResult>>,
 }
 
+const HASH_SEED: u64 = 0xdb2137db;
 const CHANNEL_SIZE: usize = 1024;
 const WEBSITE_ADDR: &str = "0.0.0.0:3000";
 const ALGONET_ADDR: &str = "127.0.0.1:3001";
 const GRAFNET_ADDR: &str = "127.0.0.1:3002";
+
+// TODO
+//  Implement a queue of graphs to be sent to website.
+//      > Graph generation phase:
+//          > There will be generated (K * L) graphs, where
+//              > M is the number of distinct graphs' node numbers
+//              > N is the number of generated graphs for each node number
+//          > Each graph will be processed by M algorithms
+//          > (K * L * M)-sized array of Option<Solution> will be allocated
+//              > Each field of the
+//          > (K * L * M)-sized array of Option(&Solution) will be allocated
+//   
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -51,9 +65,17 @@ async fn handle_grafnet(
     while let Ok((tcp_stream, _)) = listener.accept().await {
         let ws_stream = accept_async(tcp_stream).await;
         if let Ok(ws_stream) = ws_stream {
+
         }
     }
 }
+
+async fn handle_grafnet_ws(
+    ws_stream: WebSocketStream<TcpStream>,
+    tx_to_website: broadcast::Sender<MyMsg>,
+    rx_at_algonet: broadcast::Receiver<MyMsg>,
+    shared_state: SharedState,
+) 
 
 async fn handle_algonet(
     listener: TcpListener,
@@ -81,20 +103,36 @@ async fn handle_algonet_ws(
     shared_state: SharedState,
 ) {
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
+    let is_running = Arc::new(AtomicBool::new(false));
 
     let client_id = while let Some(Ok(Message::Binary(msg))) = ws_receiver.next().await {
         if let Ok(MyMsg::Greet(client_name)) = bincode::deserialize(&msg) {
-            // TODO generate a hash using twox-hash
+            let hashed_name = {
+                let mut hasher = XxHash64::with_seed(HASH_SEED);
+                hasher.write(client_name.as_bytes());
+                hasher.finish()
+            }
         }
     }
+    let client_id = Arc::new(client_id);
     
-    // TODO maybe some AtomicBool "running"?
-
     tokio::spawn(async move {
+        let is_running = is_running.clone();
+        let client_id = client_id.clone();
+        let session_id = shared_state.session_id.clone();
+
         while let Ok(msg) = rx_at_algonet.recv().await {
             match msg {
-                MyMsg::Graph(_) => {
-                    // TODO Start enum variant
+                MyMsg::Restart(algo_list) => {
+                    if (algo_list.contains(client_id) {
+                        is_running.store(true, Ordering::SeqCst);
+                    } else {
+                        is_running.store(false, Ordering::SeqCst);
+                    }
+                },
+                MyMsg::GraphReady(message_session_id, _) => {
+                    if message_session_id != session_id.load(Ordering::SeqCst) { continue; }
+
                     if let Ok(msg) = bincode::serialize(&msg) {
                         let _ = ws_sender.send(Message::Binary(msg)).await;
                     }
@@ -105,15 +143,23 @@ async fn handle_algonet_ws(
     }
 
     tokio::spawn(async move {
+        let is_running = is_running.clone();
+        let client_id = client_id.clone();
+        let session_id = shared_state.session_id.clone();
+
         while let Some(Ok(Message::Binary(msg))) = ws_receiver.next().await {
+            if !is_running.load(Ordering::SeqCst) { continue; }
+
             if let Ok(msg) = bincode::deserialize(&msg) {
                 match msg {
-                    // TODO AlgoResult api changed
-                    MyMsg::AlgoResult(graph_id, algo_result) => {
+                    MyMsg::AlgoResult(result_session_id, result_graph_id, algo_result) => {
+                        if result_session_id != session_id.load(Ordering::SeqCst) { continue; }
+
                         shared_state
                             .algo_results
-                            .insert((client_id, graph_id, algo_result));
-                        let response = MyMsg::AlgoFinished(client_id, graph_id);
+                            .insert((client_id, result_graph_id, algo_result));
+
+                        let response = MyMsg::AlgoResultReady(result_session_id, result_graph_id, client_id);
                         if let Ok(response) = bincode::serialize(&response) {
                             let _ = tx_to_website.send(response);
                         }
