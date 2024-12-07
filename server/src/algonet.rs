@@ -1,6 +1,5 @@
-use dashmap::DashMap;
 use futures_util::{sink::SinkExt, stream::StreamExt};
-use std::hash::Hasher;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use tokio::net::{TcpStream, TcpListener};
@@ -17,7 +16,7 @@ use crate::types::SharedState;
 
 pub async fn handle_algonet(
     shared_state: SharedState,
-    listener: TcpListener,
+    socket_addr: SocketAddr,
     rx_at_algonet: broadcast::Receiver<MyMsg>,
     tx_to_website: broadcast::Sender<MyMsg>,
 ) {

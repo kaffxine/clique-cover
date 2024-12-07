@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
@@ -9,7 +10,7 @@ use crate::types::{SharedState, Database};
 
 pub async fn handle_grafnet(
     shared_state: SharedState,
-    listener: TcpListener,
+    socket_addr: SocketAddr,
     rx_at_grafnet: mpsc::Receiver<MyMsg>,
     tx_to_algonet: broadcast::Sender<MyMsg>,
 ) {
