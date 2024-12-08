@@ -1,5 +1,5 @@
 # stage one: build rust binary
-FROM rust:1.82-slim-bookworm AS builder
+FROM shared-rust AS builder
 
 # Install Musl target and necessary tools
 RUN rustup target add x86_64-unknown-linux-musl
@@ -32,5 +32,3 @@ EXPOSE 8080
 
 # run the server binary
 CMD ["/app/server"]
-
-

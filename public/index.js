@@ -1,31 +1,32 @@
-let settings = null;
+document.addEventListener('DOMContentLoaded', () => {
+    console.log("hello from javascript :3");
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = window.location.host
+    const wsPath = 'ws';
+    const wsUrl = `${wsProtocol}//${wsHost}/${wsPath}`;
+    const socket = new WebSocket(wsUrl);
+    console.log("websocket created");
 
-let launchButton = document.getElementById('button-launch');
+    socket.addEventListener('open', () => {
+        console.log('ws connection established');
+    });
 
-launchButton.addEventListener('click', () => {
-    alert('hello from javascript uwu');
-    const sampleSettings = {
-        nodes_min: 5,
-        nodes_max: 50,
-        nodes_step: 5,
-        graph_density: 0.7,
-        algorithms: [
-            { name: 'Greedy Algorithm', selected: true },
-            { name: 'Speedy Algorithm', selected: false },
-        ],
-    };
+    socket.addEventListener('error', (error) => {
+        console.error('ws error', error);
+    });
 
-    fetch('/settings', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(sampleSettings),
-    })
-        .then(response => response.text())
-        .then(message => {
-            console.log('Server responded:', message);
-        })
-        .catch(error => console.error('Error:', error));
+    let launchButton = document.getElementById('button-launch');
+
+    launchButton.addEventListener('click', () => {
+        console.log('socket state:', socket.readyState);
+        if (socket.readyState === WebSocket.OPEN) {
+            let sample = { uwu: 'owo' };
+            console.log("attempting to send:", sample);
+            socket.send(JSON.stringify(sample));
+        }
+    });
+
 });
+
+
 

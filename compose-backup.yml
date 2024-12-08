@@ -1,0 +1,27 @@
+services:
+  server:
+    build: ./server
+    volumes:
+      - ./public:/app/public
+    ports:
+      - 3000
+    networks:
+      - intranet
+  
+  algo-base:
+    restart: no
+    build: ./algorithms/base
+    image: algo-base
+
+  algo-foo1:
+    build: ./algorithms/foo1
+    networks:
+      - intranet
+
+  algo-foo2:
+    build: ./algorithms/foo2
+    networks:
+      - intranet
+
+networks:
+  intranet:

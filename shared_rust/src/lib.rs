@@ -1,7 +1,6 @@
 use serde::{Serialize, Deserialize};
-use std::io::{Read, Write};
-
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>;
+pub type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum MyMsg {
@@ -41,39 +40,6 @@ pub enum MyMsg {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum MsgToWebsite {
-    Running(u8),                // session_id
-    AlgoList(Vec<Algo>),
-    AlgoResult(u8, u64, AlgoResult), // session_id, algo_id
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum MsgFromWebsite {
-    RequestRestart(String, RunParams), // password
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum MsgToGrafnet {
-    Generate(u8, GraphDist), // session_id
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum MsgFromGrafnet {
-    Graph(u8, Graph), // session_id
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum MsgToAlgonet {
-    Restart(u8, Vec<u64>),
-    Run(u8, u64, Graph),   // session_id, graph_id
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum MsgFromAlgonet {
-    Greet(String),
-    Result(u8, AlgoResult), // session_id
-}
-
 pub struct Algo {
     pub id: u16,
     pub hash: u64,
@@ -111,7 +77,19 @@ pub struct GraphDist {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Summary {};
+pub struct Summary {}
+
+impl GraphDist {
+    pub fn empty() -> Self {
+        Self {
+            n_nodes_min: 0,
+            n_nodes_max: 0,
+            n_nodes_step: 0,
+            node_degree: 0,
+            n_iterations: 0,
+        }
+    }
+}
 
 impl Default for GraphDist {
     fn default() -> Self {
