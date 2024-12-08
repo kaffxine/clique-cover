@@ -55,17 +55,19 @@ async fn handle_websocket(
             println!("handle_websocket: started read task");
             let tx_to_algonet = state.tx_to_algonet;
             let tx_to_grafnet = state.tx_to_grafnet;
-            while let Some(Ok(Message::Text(contents))) = ws_read.next().await {
-                println!("received from websocket: {}", contents);
-                match serde_json::from_str::<MyMsg>(&contents) {
-                    Ok(data) => {
-                        println!("a new message: {:?}", data);
-                    },
-                    Err(e) => {
-                        eprintln!("failed to parse JSON: {}", e);
-                    },
-                }
-            };
+            loop {
+                if let Some(Ok(Message::Text(contents))) = ws_read.next().await {
+                    println!("received from websocket: {}", contents);
+                    match serde_json::from_str::<MyMsg>(&contents) {
+                        Ok(data) => {
+                            println!("a new message: {:?}", data);
+                        },
+                        Err(e) => {
+                            eprintln!("failed to parse JSON: {}", e);
+                        },
+                    }
+                };
+            }
             println!("handle_websocket: finished read task");
         }),
     ];
@@ -132,7 +134,7 @@ async fn handle_request(
                 eprintln!("bad upgrade request");
                 return bad_request();
             }
-            let (_, ws) = hyper_tungstenite::upgrade(&mut req, None)?;
+            let (response, ws) = hyper_tungstenite::upgrade(&mut req, None)?;
             tokio::spawn(async move {
                 if let Err(e) = handle_websocket(
                     ws,
@@ -141,7 +143,9 @@ async fn handle_request(
                     eprintln!("failed to handle websocket");
                 }
             });
-            switching_protocols()
+
+            let boxed = response.map(|full| full.boxed());
+            Ok(boxed)
         },
         _ => {
             if path.contains("..") {
@@ -165,12 +169,13 @@ pub async fn handle_website(
     tx_to_grafnet: mpsc::Sender<MyMsg>,
     shared_state: Arc<SharedState>,
 ) -> Result<()> {
-    println!("website handler initiated");
+    println!("website_handler: initiated");
 
     let public_dir = Arc::new(public_dir);
     let listener = TcpListener::bind(socket_addr).await?;
     loop {
         let (stream, _) = listener.accept().await?;
+        println!("website_handler: new stream accepted");
         let io = TokioIo::new(stream);
 
         let public_dir = public_dir.clone();
@@ -180,27 +185,22 @@ pub async fn handle_website(
             tx_to_grafnet: tx_to_grafnet.clone(),
             shared_state: shared_state.clone(),
         };
+
         let service = service_fn(move |req| {
             println!("request for {:?} reached service_fn", req.uri().path());
-
-            let public_dir = public_dir.clone();
-            let state = state.clone();
-
-            async move {
-                handle_request(
-                    req,
-                    public_dir,
-                    state,
-                ).await
-            }
+            handle_request(
+                req,
+                public_dir.clone(),
+                state.clone(),
+            )
         });
-        let mut conn = http1::Builder::new()
+        let conn = http1::Builder::new()
             .serve_connection(io, service)
             .with_upgrades();
 
         tokio::spawn(async move {
-            if let Err(e) = {
-                eprintln!("failed to serve connection: {}", e);
+            if let Err(e) = conn.await {
+                eprintln!("website_handler: could not serve connvection: {}", e);
             }
         });
     }
