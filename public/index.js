@@ -1,9 +1,10 @@
 document.addEventListener('DOMContentLoaded', () => {
     console.log("hello from javascript :3");
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsProtocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
     const wsHost = window.location.host
     const wsPath = 'ws';
-    const wsUrl = `${wsProtocol}//${wsHost}/${wsPath}`;
+    // const wsUrl = `${wsProtocol}//${wsHost}/${wsPath}`;
+    const wsUrl = 'http://localhost:8080/ws'
     const socket = new WebSocket(wsUrl);
     console.log("websocket created");
 

@@ -24,6 +24,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc;
+use tokio::time::{sleep, Duration};
 use tokio_util::io::ReaderStream;
 
 use shared::{Result, Error, MyMsg};
@@ -43,12 +44,15 @@ async fn handle_websocket(
     
     let handles: Vec<tokio::task::JoinHandle<()>> = vec![
         tokio::spawn(async move {
+            println!("handle_websocket: started write task");
             let mut rx_at_website = state.rx_at_website;
             loop {
-
+                sleep(Duration::from_secs(10)).await;
             }
+            println!("handle_websocket: finished write task");
         }),
         tokio::spawn(async move {
+            println!("handle_websocket: started read task");
             let tx_to_algonet = state.tx_to_algonet;
             let tx_to_grafnet = state.tx_to_grafnet;
             while let Some(Ok(Message::Text(contents))) = ws_read.next().await {
@@ -62,6 +66,7 @@ async fn handle_websocket(
                     },
                 }
             };
+            println!("handle_websocket: finished read task");
         }),
     ];
 
@@ -175,29 +180,29 @@ pub async fn handle_website(
             tx_to_grafnet: tx_to_grafnet.clone(),
             shared_state: shared_state.clone(),
         };
-            let service = service_fn(move |req| {
-                println!("request for {:?} reached service_fn", req.uri().path());
+        let service = service_fn(move |req| {
+            println!("request for {:?} reached service_fn", req.uri().path());
 
-                let public_dir = public_dir.clone();
-                let state = state.clone();
+            let public_dir = public_dir.clone();
+            let state = state.clone();
 
-                async move {
-                    handle_request(
-                        req,
-                        public_dir,
-                        state,
-                    ).await
-                }
-            });
+            async move {
+                handle_request(
+                    req,
+                    public_dir,
+                    state,
+                ).await
+            }
+        });
         let mut conn = http1::Builder::new()
             .serve_connection(io, service)
-            .with_upgrades()
-            .await;
+            .with_upgrades();
 
-        if let Err(e) = conn {
-            eprintln!("failed to serve connection: {}", e);
-        }
-
+        tokio::spawn(async move {
+            if let Err(e) = {
+                eprintln!("failed to serve connection: {}", e);
+            }
+        });
     }
 }
 
